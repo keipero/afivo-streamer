@@ -1,0 +1,10 @@
+# Python environment for notebooks/ (python3 -m venv ~/venvs/afivo; ~/venvs/afivo/bin/pip install -r notebooks/requirements.txt)
+jupyterlab
+ipykernel
+numpy
+scipy
+pandas
+matplotlib
+pillow
+matplotlib-fontja
+nbconvert
