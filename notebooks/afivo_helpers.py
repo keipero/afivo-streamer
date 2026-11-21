@@ -135,3 +135,27 @@ def load_lineout(base, index=-1):
     log = load_log(base)
     t = float(log["time"].iloc[n]) if n < len(log) else np.nan
     return df, t
+
+
+def load_transport(base):
+    """Read <base>_summary.txt (electron transport data used in the run)."""
+    d = pd.read_csv(f"{base}_summary.txt", sep=r"\s+")
+    return d.rename(columns={
+        "E/N[Td]": "EN", "E[V/m]": "E",
+        "Electron_mobility[m^2/(Vs)]": "mu",
+        "Electron_diffusion[m^2/s]": "D",
+        "Townsend_ioniz._coef._alpha[1/m]": "alpha",
+        "Townsend_attach._coef._eta[1/m]": "eta"})
+
+
+def pulled_front_velocity(transport, E):
+    """Asymptotic velocity of a planar negative front without background
+    ionization: v* = mu*E + 2*sqrt(D*nu), nu = (alpha - eta)*mu*E.
+
+    Returns (v_star, v_drift, nu) for field strength E (V/m).
+    """
+    mu, D, a, eta = (np.interp(E, transport["E"], transport[c])
+                     for c in ["mu", "D", "alpha", "eta"])
+    vd = mu * E
+    nu = (a - eta) * vd
+    return vd + 2 * np.sqrt(D * max(nu, 0.0)), vd, nu
