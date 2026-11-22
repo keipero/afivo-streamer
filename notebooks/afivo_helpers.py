@@ -34,7 +34,8 @@ def run_streamer(program, cfg, name, overrides=None, threads=4, show_every=1,
     overrides : settings to override, {name: value}
     threads   : number of OpenMP threads (about 4 is fastest on this PC)
     reuse     : if True and a finished run with this name exists (its log
-                reaches end_time), skip running and return its base path
+                reaches end_time, or it stopped at end_streamer_length),
+                skip running and return its base path
     """
     workdir = REPO / "programs" / program
     (workdir / "output").mkdir(exist_ok=True)
@@ -44,7 +45,9 @@ def run_streamer(program, cfg, name, overrides=None, threads=4, show_every=1,
 
     if reuse and "end_time" in overrides and Path(f"{base}_log.txt").exists():
         t_last = load_log(base)["time"].iloc[-1]
-        if t_last >= 0.999 * float(overrides["end_time"]):
+        stdout = Path(f"{base}_stdout.txt")
+        stopped = stdout.exists() and "reached its desired length" in stdout.read_text(errors="ignore")
+        if t_last >= 0.999 * float(overrides["end_time"]) or stopped:
             if not quiet:
                 print(f"計算済みの結果を使います: {base}")
             return base
