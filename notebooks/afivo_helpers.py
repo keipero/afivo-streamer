@@ -169,3 +169,59 @@ def pulled_front_velocity(transport, E):
     vd = mu * E
     nu = (a - eta) * vd
     return vd + 2 * np.sqrt(D * max(nu, 0.0)), vd, nu
+
+
+def needle_plane_settings(gap, voltage, tip_radius=200e-6, shank_radius=0.5e-3,
+                          cone_length=2e-3, needle_length=4e-3, photoi=True,
+                          background_density=1e13):
+    """Config overrides for an axisymmetric needle-plane gap.
+
+    Use with programs/standard_2d and the base config
+    streamer_cyl_electrode.cfg. The needle hangs from the top of a square
+    domain of size L = gap + needle_length; the grounded plane is z = 0.
+
+    gap          : distance from the needle tip to the plane (m)
+    voltage      : needle voltage (V); > 0 positive needle, < 0 negative
+    tip_radius   : radius of curvature of the needle tip (m)
+    shank_radius : radius of the cylindrical part of the needle (m)
+    cone_length  : length of the conical part (m)
+    needle_length: length of the needle inside the domain (m)
+    photoi       : enable photoionization
+    background_density : initial electron and ion density (1/m^3)
+
+    Returns (overrides, info). info holds the geometry in meters.
+    """
+    L = gap + needle_length
+    # rod_cone_top: r0 = base of the rod, r1 = end of the cone. The tip is a
+    # sphere tangent to the cone, so the apex is slightly below r1. Solve for
+    # r1 such that the apex is exactly at z = gap (two fixed-point steps).
+    z1 = gap
+    for _ in range(3):
+        a = np.arctan((shank_radius - tip_radius) / cone_length)
+        r_curv = tip_radius / np.cos(a)
+        z1 = gap + r_curv * (1 - np.sin(a))
+    cone_frac = cone_length / (L - z1)
+    if not 0 < cone_frac < 1:
+        raise ValueError("cone_length must be shorter than the needle")
+
+    overrides = {
+        "cylindrical": True,
+        "domain_len": [L, L],
+        "use_electrode": True,
+        "field_electrode_type": "rod_cone_top",
+        "field_electrode_grounded": False,
+        "field_rod_r0": [0.0, 1.0],
+        "field_rod_r1": [0.0, z1 / L],
+        "field_rod_radius": shank_radius,
+        "cone_tip_radius": tip_radius,
+        "cone_length_frac": cone_frac,
+        "refine_electrode_dx": min(50e-6, tip_radius / 4),
+        "field_given_by": f"voltage {voltage:g}",
+        "background_density": background_density,
+        "photoi%enabled": photoi,
+        "photoi%species": "M_plus",
+        "fixes%source_factor": "flux",   # 'original_flux' in the example cfg is no longer valid
+    }
+    info = {"L": L, "gap": gap, "tip_z": gap, "z1": z1, "cone_half_angle_deg": np.degrees(a),
+            "mean_field": abs(voltage) / gap}
+    return overrides, info
