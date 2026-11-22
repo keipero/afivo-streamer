@@ -25,7 +25,7 @@ def _fmt(value):
 
 
 def run_streamer(program, cfg, name, overrides=None, threads=4, show_every=1,
-                 quiet=False):
+                 quiet=False, reuse=False):
     """Run ./streamer in programs/<program> and return the output base path.
 
     program   : folder under programs/ (e.g. "standard_2d")
@@ -33,11 +33,21 @@ def run_streamer(program, cfg, name, overrides=None, threads=4, show_every=1,
     name      : run name; output goes to programs/<program>/output/<name>_*
     overrides : settings to override, {name: value}
     threads   : number of OpenMP threads (about 4 is fastest on this PC)
+    reuse     : if True and a finished run with this name exists (its log
+                reaches end_time), skip running and return its base path
     """
     workdir = REPO / "programs" / program
     (workdir / "output").mkdir(exist_ok=True)
     overrides = dict(overrides or {})
     overrides["output%name"] = f"output/{name}"
+    base = workdir / "output" / name
+
+    if reuse and "end_time" in overrides and Path(f"{base}_log.txt").exists():
+        t_last = load_log(base)["time"].iloc[-1]
+        if t_last >= 0.999 * float(overrides["end_time"]):
+            if not quiet:
+                print(f"計算済みの結果を使います: {base}")
+            return base
 
     cmd = ["./streamer", cfg] + [f"-{k}={_fmt(v)}" for k, v in overrides.items()]
     if not quiet:
