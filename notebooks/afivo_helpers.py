@@ -176,7 +176,8 @@ def pulled_front_velocity(transport, E):
 
 def needle_plane_settings(gap, voltage, tip_radius=200e-6, shank_radius=0.5e-3,
                           cone_length=2e-3, needle_length=4e-3, photoi=True,
-                          background_density=1e13):
+                          background_density=1e13, chemistry="simple",
+                          ion_mobility=2.2e-4):
     """Config overrides for an axisymmetric needle-plane gap.
 
     Use with programs/standard_2d and the base config
@@ -191,6 +192,11 @@ def needle_plane_settings(gap, voltage, tip_radius=200e-6, shank_radius=0.5e-3,
     needle_length: length of the needle inside the domain (m)
     photoi       : enable photoionization
     background_density : initial electron and ion density (1/m^3)
+    chemistry    : "simple"   - ionization and attachment only (td_air_siglo_swarm.txt)
+                   "detailed" - air_chemistry_v3 (detachment, ion conversion,
+                                recombination) plus N2(C3) for light emission
+                                (transport_data/air_chemistry_v3_light.txt)
+    ion_mobility : mobility of the ions (m^2/(V s)) when chemistry = "detailed"
 
     Returns (overrides, info). info holds the geometry in meters.
     """
@@ -222,9 +228,57 @@ def needle_plane_settings(gap, voltage, tip_radius=200e-6, shank_radius=0.5e-3,
         "field_given_by": f"voltage {voltage:g}",
         "background_density": background_density,
         "photoi%enabled": photoi,
-        "photoi%species": "M_plus",
         "fixes%source_factor": "flux",   # 'original_flux' in the example cfg is no longer valid
     }
+    if chemistry == "simple":
+        overrides["photoi%species"] = "M_plus"
+    elif chemistry == "detailed":
+        ions = ["N2_plus", "N4_plus", "O2_plus", "O4_plus", "O_min", "O2_min", "O3_min"]
+        overrides.update({
+            "input_data%file": "../../transport_data/air_chemistry_v3_light.txt",
+            "input_data%old_style": False,
+            "photoi%species": "O2_plus",
+            "input_data%mobile_ions": ions,
+            "input_data%ion_mobilities": [ion_mobility] * len(ions),
+        })
+    else:
+        raise ValueError("chemistry must be 'simple' or 'detailed'")
     info = {"L": L, "gap": gap, "tip_z": gap, "z1": z1, "cone_half_angle_deg": np.degrees(a),
             "mean_field": abs(voltage) / gap}
     return overrides, info
+
+
+# Radiative decay rate of N2(C3) (second positive system), 1/s (lifetime 42 ns)
+N2_C3_DECAY_RATE = 2.381e7
+
+
+def streak_image(base, r_max, z_max, variable="N2_C3", factor=N2_C3_DECAY_RATE,
+                 mode="slit", every=1):
+    """Synthetic streak image I(t, z) from an axisymmetric run.
+
+    The emission density is factor * <variable> (for N2_C3: photons/(m^3 s)
+    of the second positive system). For each silo file it computes
+
+      mode = "slit": line-of-sight integral through the axis,
+                     I(z) = 2 * integral_0^R eps(r, z) dr          [1/(m^2 s)]
+                     (a streak camera whose slit is imaged on the axis)
+      mode = "total": light per unit length in z,
+                     I(z) = integral_0^R eps(r, z) 2 pi r dr       [1/(m s)]
+
+    Returns (t, z, I) with I of shape (n_times, n_z).
+    """
+    files = silo_files(base)[::every]
+    times, rows = [], []
+    for f in files:
+        data, r, z, t = load_silo(f, variable, r_max=[r_max, z_max])
+        eps = factor * data                       # shape (n_r, n_z)
+        dr = r[1] - r[0]
+        if mode == "slit":
+            I = 2 * eps.sum(axis=0) * dr
+        elif mode == "total":
+            I = (eps * (2 * np.pi * r)[:, None]).sum(axis=0) * dr
+        else:
+            raise ValueError("mode must be 'slit' or 'total'")
+        times.append(t)
+        rows.append(I)
+    return np.array(times), z, np.array(rows)
